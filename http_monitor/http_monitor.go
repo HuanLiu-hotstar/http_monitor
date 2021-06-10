@@ -38,7 +38,10 @@ var (
 	subsystem      = "subsystem"
 	reqLabels      = []string{"status", "endpoint", "path"}
 	// http_status, remote_ip ,method ,uri,duration
-	one sync.Once
+	one     sync.Once
+	destroy bool
+	// monitor metrics list
+	monitorList []prometheus.Collector
 )
 
 func getCounterVecOpt(name, help string) prometheus.CounterOpts {
@@ -66,10 +69,11 @@ func newMetric() {
 		Name:      "response_time_seconds",
 		Help:      "Duration of HTTP requests.",
 	}, reqLabels)
+	monitorList = []prometheus.Collector{totalRequests, responseStatus, httpDuration}
 }
+
 func registerMetric() {
-	list := []prometheus.Collector{totalRequests /*responseStatus,*/, httpDuration}
-	for _, c := range list {
+	for _, c := range monitorList {
 		if err := prometheus.Register(c); err != nil {
 			panic(fmt.Sprintf("err:%s", err))
 		}
@@ -84,11 +88,22 @@ func Init(Namespace string, SubSystem string) func(next http.Handler) http.Handl
 		namespace, subsystem = Namespace, SubSystem
 		newMetric()
 		registerMetric()
+		destroy = true
 	})
 	return PrometheusFunc(PrometheusMiddleware)
 	// return PrometheusMiddleware
 }
+func unregisterMetrics() {
+	for _, c := range monitorList {
+		prometheus.Unregister(c)
+	}
+}
 
+func Destory() {
+	if destroy {
+		unregisterMetrics()
+	}
+}
 func GetIP(s string) string {
 	if ip := strings.Split(s, ":"); len(ip) > 1 && len(ip[0]) >= 7 { // 1.1.1.1
 		return ip[0]
