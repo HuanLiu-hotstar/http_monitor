@@ -3,14 +3,18 @@ package http_monitor
 import (
 	"fmt"
 	"net/http"
-	"strconv"
+	"strings"
+	// "strconv"
 	"sync"
+	"time"
 
-	"github.com/gorilla/mux"
+	// "github.com/gorilla/mux"
 	"github.com/prometheus/client_golang/prometheus"
 	// "github.com/prometheus/client_golang/prometheus/promauto" // auto register metrics with init
-	// "github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
+
+// count,http_status,remote_ip,path,duration monitor
 
 type responseWriter struct {
 	http.ResponseWriter
@@ -32,8 +36,9 @@ var (
 	httpDuration   *prometheus.HistogramVec
 	namespace      = "namespace"
 	subsystem      = "subsystem"
-	reqLabels      = []string{"status", "endpoint", "method"}
-	one            sync.Once
+	reqLabels      = []string{"status", "endpoint", "path"}
+	// http_status, remote_ip ,method ,uri,duration
+	one sync.Once
 )
 
 func getCounterVecOpt(name, help string) prometheus.CounterOpts {
@@ -80,20 +85,66 @@ func Init(Namespace string, SubSystem string) func(next http.Handler) http.Handl
 		newMetric()
 		registerMetric()
 	})
-	return PrometheusMiddleware
+	return PrometheusFunc(PrometheusMiddleware)
+	// return PrometheusMiddleware
 }
+
+func GetIP(s string) string {
+	if ip := strings.Split(s, ":"); len(ip) > 1 && len(ip[0]) >= 7 { // 1.1.1.1
+		return ip[0]
+	}
+	return ""
+}
+
+type PrometheusFunc func(next http.Handler) http.Handler
+
+func (p PrometheusFunc) WrapFunc(f func(w http.ResponseWriter, r *http.Request)) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		p(http.Handler(http.HandlerFunc(f))).ServeHTTP(w, r)
+	}
+}
+
+func WrapFunc(middle PrometheusFunc, f http.HandlerFunc) http.HandlerFunc {
+	return middle.WrapFunc(f)
+}
+
+// PrometheusMiddleware return the wrap for prometheus monitor
 func PrometheusMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		route := mux.CurrentRoute(r)
-		path, _ := route.GetPathTemplate()
 
-		timer := prometheus.NewTimer(httpDuration.WithLabelValues(path))
+		ip, start, path := GetIP(r.RemoteAddr), time.Now(), r.URL.Path
+
 		rw := NewResponseWriter(w)
 		next.ServeHTTP(rw, r)
 
-		statusCode := rw.statusCode
-		responseStatus.WithLabelValues(strconv.Itoa(statusCode)).Inc()
-		totalRequests.WithLabelValues(path).Inc()
-		timer.ObserveDuration()
+		statusCode := fmt.Sprintf("%d", rw.statusCode)
+		labels := []string{statusCode, ip, path}
+		//duration
+		httpDuration.WithLabelValues(labels...).Observe(time.Since(start).Seconds())
+		// resp status
+		responseStatus.WithLabelValues(labels...).Inc()
+		// total request
+		totalRequests.WithLabelValues(labels...).Inc()
+
 	})
 }
+
+// UseMiddleHandlerFunc wrap for HandlerFunc with Prometheus middleware
+func UseMiddleHandlerFunc(f func(w http.ResponseWriter, r *http.Request), middleware PrometheusFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		middleware(http.Handler(http.HandlerFunc(f))).ServeHTTP(w, r)
+	}
+}
+
+// GetPromotheusHandler Prometheus http.HandlerFunc
+func GetPrometheusHandler(middleware PrometheusFunc) http.HandlerFunc {
+	return middleware(promhttp.Handler()).ServeHTTP
+}
+
+// route := mux.CurrentRoute(r)
+// path, _ := route.GetPathTemplate()
+// timer := prometheus.NewTimer(httpDuration.WithLabelValues(status, ip, path))
+// responseStatus.WithLabelValues(strconv.Itoa(statusCode)).Inc()
+// timer.ObserveDuration()
+// "status", "endpoint", "method"
+// count,http_status, remote_ip ,method ,uri,duration
