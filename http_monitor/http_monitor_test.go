@@ -13,11 +13,14 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
-type Func func(w http.ResponseWriter, r *http.Request)
+// type Func func(w http.ResponseWriter, r *http.Request)
 
-func (f Func) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	f(w, r)
-}
+// func (f Func) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+// 	f(w, r)
+// }
+
+// go test -run=TestHttpMonitor
+// curl  127.0.0.1:9001/hello
 func TestHttpMonitor(t *testing.T) {
 	router := mux.NewRouter()
 	middleware := Init("chat_infra", "router")
@@ -31,7 +34,7 @@ func TestHttpMonitor(t *testing.T) {
 
 	}
 	// Serving static files
-	router.PathPrefix("/hello").Handler(Func(f))
+	router.PathPrefix("/hello").Handler(http.HandlerFunc(f))
 
 	fmt.Println("Serving requests on port 9000")
 	err := http.ListenAndServe(":9000", router)
@@ -68,6 +71,9 @@ func CommonWrite(w http.ResponseWriter, num, code int, msg string) {
 	bye, _ := json.Marshal(resp)
 	w.Write(bye)
 }
+
+// go test -run=TestGolangHttpMonitor
+// curl  127.0.0.1:9001/world -d '{"num":10}'
 func TestGolangHttpMonitor(t *testing.T) {
 	f := func(w http.ResponseWriter, r *http.Request) {
 		res := 0

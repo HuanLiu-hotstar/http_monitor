@@ -31,7 +31,7 @@ func main(){
         w.Write([]byte("hello world http2\n"))
     }
     // Serving for logic uri 
-    router.PathPrefix("/hello").Handler(Func(f))    
+    router.PathPrefix("/hello").Handler(http.HandlerFunc(f))    
     fmt.Println("Serving requests on port 9000")
     err := http.ListenAndServe(":9000", router)
     log.Fatal(err)
