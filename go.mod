@@ -1,4 +1,4 @@
-module http_monitor
+module github.com/HuanLiu-hotstar/http_monitor
 
 go 1.16
 
